@@ -74,7 +74,8 @@ typedef enum {
     TECLA_ALARMA,
     EVENTO_3STIME,
     EVENTO_3SALARMA,
-    EVENTO_30S
+    EVENTO_30S,
+    OTROEVENTO
 } evento_t;
 
 /*Declaracion de funciones Privadas*/
@@ -235,12 +236,17 @@ void TareaPrincipal(void* Parameters) {
 
 
                 case TECLA_TIME:
+                    if(tiempo_presionado_hora_actual==0){
                         tiempo_presionado_hora_actual=1;
+                    }
                     break;
 
 
                 case TECLA_ALARMA:
+                    if(tiempo_presionado_hora_alarma==0){
                         tiempo_presionado_hora_alarma=1;
+                    }
+
                     break;
 
 
@@ -283,6 +289,7 @@ void TareaTeclado(void* Parameters) {
     evento_t entrada;
 
     while (1) {
+        entrada = OTROEVENTO;
         if(DigitalInputGetState(board->accept)){
             entrada = TECLA_ACEPTAR; 
         }
@@ -292,26 +299,21 @@ void TareaTeclado(void* Parameters) {
         if(DigitalInputGetState(board->increment)){
             entrada = TECLA_INCREMENTAR;
         }
-
         if(DigitalInputGetState(board->decrement)){
             entrada = TECLA_DECREMENTAR;
         }
-
         if(DigitalInputGetState(board->set_time)){
             entrada = TECLA_TIME;
         }
-
         if(tiempo_presionado_hora_actual>MODIFICAR){
             entrada = EVENTO_3STIME;
         }
         if(DigitalInputGetState(board->set_alarma)){
             entrada = TECLA_ALARMA;
         }
-
         if(tiempo_presionado_hora_alarma>MODIFICAR){
             entrada = EVENTO_3SALARMA;
         }
-
         if (tiempo_sin_presionar > CANCELAR_MODIFICAR){
             entrada = EVENTO_30S;
         }
@@ -319,7 +321,7 @@ void TareaTeclado(void* Parameters) {
         // Enviar la entrada a la cola
         xQueueSend(colaTeclado, &entrada, portMAX_DELAY);
 
-        vTaskDelay(pdMS_TO_TICKS(150));
+        vTaskDelay(pdMS_TO_TICKS(200));
     }
 }
 
@@ -338,68 +340,69 @@ static void TareaSysTick(void* Parameters){
     static uint16_t contador=0;
     uint8_t hora[4];
     bool llave=false;
-    DisplayRefresh(board->display);
-    ClkTick(reloj);
 
-    // Contador para que el punto central parpadee 1 vez por segundo
-    contador = (contador+1)%TICS_POR_SEGUNDO;
-    if(contador>=TICS_POR_SEGUNDO/2){
-        llave=true;
-    }else{
-        llave=false;
-    }
+    while(true){
+        ClkTick(reloj);
 
-
-    // Logica para parpadear punto central y prender ultimo punto
-    if(modo<=MOSTRANDO_HORA){ //Solo muestra hora en mostrando hora y configurar
-        ClkGetTime(reloj, hora, sizeof(hora));
-        DisplayWriteBCD(board->display,hora, sizeof(hora));
-        if(llave){
-            DisplayToggleDot(board->display,1);
+        // Contador para que el punto central parpadee 1 vez por segundo
+        contador = (contador+1)%TICS_POR_SEGUNDO;
+        if(contador>=TICS_POR_SEGUNDO/2){
+            llave=true;
+        }else{
+            llave=false;
         }
-        if(ClkGetAlarma(reloj, hora, sizeof(hora))){
-            DisplayOnDot(board->display,3);
+
+
+        // Logica para parpadear punto central y prender ultimo punto
+        if(modo<=MOSTRANDO_HORA){ //Solo muestra hora en mostrando hora y configurar
+            ClkGetTime(reloj, hora, sizeof(hora));
+            DisplayWriteBCD(board->display,hora, sizeof(hora));
+            if(llave){
+                DisplayToggleDot(board->display,1);
+            }
+            if(ClkGetAlarma(reloj, hora, sizeof(hora))){
+                DisplayOnDot(board->display,3);
+            }
         }
+
+
+        // Logica para prender todos los puntos cuando se este modificando el codigo
+        if(modo==AJUSTANDO_MINUTOS_ALARMA||modo==AJUSTANDO_HORAS_ALARMA){
+        DisplayOnDot(board->display,0);
+        DisplayOnDot(board->display,1);
+        DisplayOnDot(board->display,2);
+        DisplayOnDot(board->display,3); 
+        }
+
+
+        // Logica para contar tiempo de boton presionado
+        if(tiempo_presionado_hora_actual>0 && DigitalInputGetState(board->set_time)){
+            tiempo_presionado_hora_actual++;
+        }else{
+            tiempo_presionado_hora_actual= 0;
+        }
+        if(tiempo_presionado_hora_alarma>0 && DigitalInputGetState(board->set_alarma)){
+            tiempo_presionado_hora_alarma++;
+        }else{
+            tiempo_presionado_hora_alarma=0;
+        }
+        if( (tiempo_sin_presionar>0) &&
+            !DigitalInputGetState(board->accept) &&
+            !DigitalInputGetState(board->cancel) &&
+            !DigitalInputGetState(board->decrement) &&
+            !DigitalInputGetState(board->increment)){
+            tiempo_sin_presionar++;
+        }
+
+        vTaskDelayUntil(&last_value, pdMS_TO_TICKS(1));
     }
-
-
-    // Logica para prender todos los puntos cuando se este modificando el codigo
-    if(modo==AJUSTANDO_MINUTOS_ALARMA||modo==AJUSTANDO_HORAS_ALARMA){
-       DisplayOnDot(board->display,0);
-       DisplayOnDot(board->display,1);
-       DisplayOnDot(board->display,2);
-       DisplayOnDot(board->display,3); 
-    }
-
-
-
-    // Logica para contar tiempo de boton presionado
-    if(tiempo_presionado_hora_actual>0 && DigitalInputGetState(board->set_time)){
-        tiempo_presionado_hora_actual++;
-    } else{
-        tiempo_presionado_hora_actual= 0;
-    }
-    if(tiempo_presionado_hora_alarma>0 && DigitalInputGetState(board->set_alarma)){
-        tiempo_presionado_hora_alarma++;
-    } else{
-        tiempo_presionado_hora_alarma=0;
-    }
-    if( (tiempo_sin_presionar>0) &&
-        !DigitalInputGetState(board->accept) &&
-        !DigitalInputGetState(board->cancel) &&
-        !DigitalInputGetState(board->decrement) &&
-        !DigitalInputGetState(board->increment)){
-        tiempo_sin_presionar++;
-    }
-
-    vTaskDelayUntil(&last_value, pdMS_TO_TICKS(1));
 }
 
 
 static void DisplayRefreshTask(void * pvParameters) {
     while (true) {
         DisplayRefresh(board->display);
-        vTaskDelay(pdMS_TO_TICKS(2));
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
 
